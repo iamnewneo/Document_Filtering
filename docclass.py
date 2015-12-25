@@ -146,3 +146,22 @@ class fisherclassifier(classifier):
 
 		p = clf/(freqsum)
 		return p
+
+	def fisherprob(self,item,cat):
+		p=1
+		features=self.getfeatures(item)
+		for f in features:
+			p*=(self.weightedprob(f,cat,self.cprob))
+		#take natural log and multiply by -2 -->> fisher method
+		fscore=-2*math.log(p)
+
+		#return inverse chi2 functuon to get probabaility
+		return self.invchi2(fscore,len(features)*2)
+
+	def invchi2(self,chi,df):
+		m = chi/2.0
+		summation=term=math.exp(-m)
+		for i in range(1,df//2):
+			term*=m/i
+			summation+=term
+		return min(summation,1.0)
