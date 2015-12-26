@@ -1,5 +1,6 @@
 import re
 import math
+import sqlite3
 
 def getwords(doc):
 	splitter=re.compile('\\W*')
@@ -25,37 +26,69 @@ class classifier:
 		self.cc={}
 		self.getfeatures=getfeatures
 
+	def setdb(self,dbfile):
+		self.con=sqlite3.connect(dbfile)
+		self.con.execute('create table if not exists fc(feature,category,count)')
+		self.con.execute('create table if not exists cc(category,count)')
+
 	#increase the count of a feature/category pair
 	def incf(self,f,cat):
-		self.fc.setdefault(f,{})
-		self.fc[f].setdefault(cat,0)
-		self.fc[f][cat]+=1
+		#self.fc.setdefault(f,{})
+		#self.fc[f].setdefault(cat,0)
+		#self.fc[f][cat]+=1
+		count=self.fcount(f,cat)
+		if count==0:
+			self.con.execute("insert into fc values ('%s','%s',1)" %(f,cat))
+		else:
+			self.con.execute("update fc set count=%d where feature='%s' and category='%s'" %(count+1,f,cat))
 
 	#increase the count of category
 	def incc(self,cat):
-		self.cc.setdefault(cat,0)
-		self.cc[cat]+=1
+		#self.cc.setdefault(cat,0)
+		#self.cc[cat]+=1
+		count=self.catcount(cat)
+		if count == 0:
+			self.con.execute("insert into cc values('%s',1)" %(cat))
+		else:
+			self.con.execute("update cc set count=%d where category='%s'" %(count++1,cat))
 
 
 	# the number of times a feature has appeared in a category
 	def fcount(self,f,cat):
-		if f in self.fc and cat in self.fc[f]:
-			return float(self.fc[f][cat])
-		return 0.0
+		#if f in self.fc and cat in self.fc[f]:
+		#	return float(self.fc[f][cat])
+		#return 0.0
+		res=self.con.execute("select count from fc where feature='%s' and category='%s'" %(f,cat)).fetchone()
+		if res == None:
+			return 0
+		else:
+			return float(res[0])
 
 	#number of times in a category
 	def catcount(self,cat):
-		if cat in self.cc:
-			return float(self.cc[cat])
-		return 0
+		#if cat in self.cc:
+		#	return float(self.cc[cat])
+		#return 0
+		res=self.con.execute('select count from cc where category="%s"' %(cat)).fetchone()
+		if res==None:
+			return 0
+		else:
+			return float(res[0])
 
 	#total number of items
 	def totalcount(self):
-		return sum(self.cc.values())
+		#return sum(self.cc.values())
+		res=self.con.execute("select sum(count) from cc").fetchone()
+		if res==None:
+			return 0
+		else:
+			return res[0]
 
 	#list of all categories
 	def categories(self):
-		return self.cc.keys()
+		#return self.cc.keys()
+		cur=self.con.execute('select category from cc')
+		return [d[0] for d in cur]
 
 	def train(self,item,cat):
 		features =self.getfeatures(item)
@@ -66,6 +99,7 @@ class classifier:
 
 		#increment count for this category
 		self.incc(cat)
+		self.con.commit()
 
 
 	#calculate the probabelity of a feature in the document of that category
@@ -138,6 +172,29 @@ class naivebayes(classifier):
 		return best
 
 class fisherclassifier(classifier):
+	def __init__(self,getfeatures):
+		classifier.__init__(self,getfeatures)
+		self.minimums={}
+
+	def setminimum(self,cat,minimum):
+		self.minimums[cat]=minimum
+
+	def getminimum(self,cat):
+		if cat not in self.minimums:
+			return 0
+		return self.minimums[cat]
+
+	def classify(self,item,default=None):
+		#loop through looking for best result
+		best = default
+		maximum=0.0
+		for c in self.categories():
+			p=self.fisherprob(item,c)
+			#make sure it exceeds mininum
+			if p>self.getminimum(c) and p>maximum:
+				best = c
+				maximum=p
+		return best
 	def cprob(self,f,cat):
 		clf=self.fprob(f,cat)
 		if clf==0:
